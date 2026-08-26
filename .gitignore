@@ -1,0 +1,32 @@
+# Environment files (secrets — never commit)
+backend/.env
+frontend/.env
+RAG/.env
+*.env
+
+# Python
+.venv/
+venv/
+**/venv/
+backend/.venv/
+backend/logs/
+backend/__pycache__/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+.vite/
+
+# Local build, verification, and reference artifacts
+outputs/
+work/
+references/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
