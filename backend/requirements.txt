@@ -1,0 +1,16 @@
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+odmantic>=1.0,<2.0
+motor>=3.6,<4.0
+PyJWT>=2.8,<3.0
+passlib[bcrypt]>=1.7,<2.0
+# passlib 1.7.x needs the pre-4.1 bcrypt API (newer releases log an avoidable backend warning).
+bcrypt==4.0.1
+pydantic[email]>=2.8,<3.0
+python-dotenv>=1.0,<2.0
+cloudinary>=1.40,<2.0
+reportlab>=4.2,<5.0
+pypdf>=5.0,<6.0
+langchain-text-splitters>=0.3,<1.0
+python-multipart>=0.0.20,<1.0
+# Optional realtime service, installed with: pip install -r voice_requirements.txt

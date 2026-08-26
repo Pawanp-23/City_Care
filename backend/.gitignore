@@ -1,0 +1,8 @@
+.env
+.venv/
+voice_client/node_modules/
+__pycache__/
+*.py[cod]
+logs/
+data/
+.pytest_cache/

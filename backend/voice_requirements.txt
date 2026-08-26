@@ -1,0 +1,4 @@
+# Separate process: does not affect the booking API unless you explicitly run it.
+# Matches the SmallWebRTC flow used by CityCare's voice client.
+python-dotenv>=1.0,<2.0
+pipecat-ai[google,silero,deepgram,webrtc,runner]
