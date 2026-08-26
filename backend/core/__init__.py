@@ -1,0 +1,2 @@
+"""CityCare application package."""
+

@@ -1,0 +1,3 @@
+# esbuild is required by Vite. Its binary postinstall is explicitly reviewed and allowed.
+allowBuilds:
+  esbuild: true
