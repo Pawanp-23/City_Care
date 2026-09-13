@@ -1,4 +1,4 @@
-﻿services:
+services:
   # Backend: FastAPI
   - type: web
     name: citycare-api
@@ -40,7 +40,6 @@
     name: citycare-frontend
     env: static
     rootDir: frontend
-    plan: free
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
     routes:
