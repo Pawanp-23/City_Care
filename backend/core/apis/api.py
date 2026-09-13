@@ -140,6 +140,11 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/", tags=["System"])
+async def root() -> dict:
+    return {"status": "ok", "service": "citycare-api"}
+
+
 app.include_router(auth_router.router)
 app.include_router(clinic_router.router)
 app.include_router(appointment_router.router)
