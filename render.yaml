@@ -40,7 +40,7 @@ services:
     name: citycare-frontend
     env: static
     rootDir: frontend
-    buildCommand: npm install && npm run build
+    buildCommand: npm install -g pnpm && pnpm install && pnpm run build
     staticPublishPath: ./dist
     routes:
       - type: rewrite
@@ -51,3 +51,5 @@ services:
         value: https://citycare-api.onrender.com
       - key: VITE_TELEGRAM_BOT_USERNAME
         value: CityCareMediHubBot
+      - key: NODE_VERSION
+        value: "20"
