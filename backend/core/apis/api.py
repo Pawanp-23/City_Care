@@ -24,7 +24,7 @@ from core.apis.routes import (
     telegram_router,
 )
 from core.config import settings
-from core.database.database import close_mongo_connection, engine
+from core.database.database import client, close_mongo_connection, engine
 from core.models.appointment_model import Appointment, AppointmentStatus
 from core.models.prescription_model import ClinicKnowledgeChunk, Prescription, PrescriptionChunk
 from core.models.user_model import User
@@ -36,67 +36,75 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    await engine.configure_database([
-        User,
-        Appointment,
-        Prescription,
-        PrescriptionChunk,
-        ClinicKnowledgeChunk,
-        TelegramPatientLink,
-        TelegramSession,
-        TelegramLinkCode,
-        TelegramUpdateReceipt,
-    ])
-    appointments = engine.get_collection(Appointment)
-    # Replace prior index definitions. The active-state set changed when the
-    # acceptance workflow was introduced, and MongoDB cannot alter a partial
-    # index in place.
-    for index_name in ("one_active_appointment_per_slot", "one_active_appointment_per_doctor_slot"):
-        try:
-            await appointments.drop_index(index_name)
-        except OperationFailure:
-            pass
-    # MongoDB remains the final authority when concurrent patients book the
-    # same doctor's slot.
-    await appointments.create_index(
-        [("doctor_id", ASCENDING), ("appointment_date", ASCENDING), ("slot", ASCENDING)],
-        name="one_active_appointment_per_doctor_slot",
-        unique=True,
-        partialFilterExpression={
-            "status": {"$in": [AppointmentStatus.PENDING.value, AppointmentStatus.ACCEPTED.value, AppointmentStatus.BOOKED.value]},
-            "doctor_id": {"$exists": True},
-        },
-    )
-    await engine.get_collection(Prescription).create_index(
-        [("appointment_id", ASCENDING)], name="one_prescription_per_appointment", unique=True
-    )
-    await engine.get_collection(TelegramPatientLink).create_index(
-        [("telegram_user_id", ASCENDING)], name="one_patient_per_telegram_user", unique=True
-    )
-    await engine.get_collection(TelegramPatientLink).create_index(
-        [("patient_id", ASCENDING)], name="one_telegram_user_per_patient", unique=True
-    )
-    await engine.get_collection(TelegramSession).create_index(
-        [("session_key", ASCENDING)], name="one_telegram_session_key", unique=True
-    )
-    await engine.get_collection(TelegramSession).create_index(
-        [("expires_at", ASCENDING)], name="expire_telegram_sessions", expireAfterSeconds=0
-    )
-    await engine.get_collection(TelegramLinkCode).create_index(
-        [("code_hash", ASCENDING)], name="one_telegram_link_code", unique=True
-    )
-    await engine.get_collection(TelegramLinkCode).create_index(
-        [("expires_at", ASCENDING)], name="expire_telegram_link_codes", expireAfterSeconds=0
-    )
-    await engine.get_collection(TelegramUpdateReceipt).create_index(
-        [("update_id", ASCENDING)], name="one_telegram_update", unique=True
-    )
-    await engine.get_collection(TelegramUpdateReceipt).create_index(
-        [("processed_at", ASCENDING)], name="expire_telegram_update_receipts", expireAfterSeconds=604800
-    )
-    logger.info("MongoDB indexes verified")
+    try:
+        # Verify connectivity before trying to create indexes
+        await client.admin.command("ping")
+        logger.info("MongoDB Atlas: ping OK")
+
+        await engine.configure_database([
+            User,
+            Appointment,
+            Prescription,
+            PrescriptionChunk,
+            ClinicKnowledgeChunk,
+            TelegramPatientLink,
+            TelegramSession,
+            TelegramLinkCode,
+            TelegramUpdateReceipt,
+        ])
+        appointments = engine.get_collection(Appointment)
+        # Replace prior index definitions. The active-state set changed when the
+        # acceptance workflow was introduced, and MongoDB cannot alter a partial
+        # index in place.
+        for index_name in ("one_active_appointment_per_slot", "one_active_appointment_per_doctor_slot"):
+            try:
+                await appointments.drop_index(index_name)
+            except OperationFailure:
+                pass
+        # MongoDB remains the final authority when concurrent patients book the
+        # same doctor's slot.
+        await appointments.create_index(
+            [("doctor_id", ASCENDING), ("appointment_date", ASCENDING), ("slot", ASCENDING)],
+            name="one_active_appointment_per_doctor_slot",
+            unique=True,
+            partialFilterExpression={
+                "status": {"$in": [AppointmentStatus.PENDING.value, AppointmentStatus.ACCEPTED.value, AppointmentStatus.BOOKED.value]},
+                "doctor_id": {"$exists": True},
+            },
+        )
+        await engine.get_collection(Prescription).create_index(
+            [("appointment_id", ASCENDING)], name="one_prescription_per_appointment", unique=True
+        )
+        await engine.get_collection(TelegramPatientLink).create_index(
+            [("telegram_user_id", ASCENDING)], name="one_patient_per_telegram_user", unique=True
+        )
+        await engine.get_collection(TelegramPatientLink).create_index(
+            [("patient_id", ASCENDING)], name="one_telegram_user_per_patient", unique=True
+        )
+        await engine.get_collection(TelegramSession).create_index(
+            [("session_key", ASCENDING)], name="one_telegram_session_key", unique=True
+        )
+        await engine.get_collection(TelegramSession).create_index(
+            [("expires_at", ASCENDING)], name="expire_telegram_sessions", expireAfterSeconds=0
+        )
+        await engine.get_collection(TelegramLinkCode).create_index(
+            [("code_hash", ASCENDING)], name="one_telegram_link_code", unique=True
+        )
+        await engine.get_collection(TelegramLinkCode).create_index(
+            [("expires_at", ASCENDING)], name="expire_telegram_link_codes", expireAfterSeconds=0
+        )
+        await engine.get_collection(TelegramUpdateReceipt).create_index(
+            [("update_id", ASCENDING)], name="one_telegram_update", unique=True
+        )
+        await engine.get_collection(TelegramUpdateReceipt).create_index(
+            [("processed_at", ASCENDING)], name="expire_telegram_update_receipts", expireAfterSeconds=604800
+        )
+        logger.info("MongoDB indexes verified")
+    except Exception as exc:  # noqa: BLE001
+        logger.error("⚠️  MongoDB startup error (app will start, DB calls will fail): %s", exc, exc_info=True)
     yield
     await close_mongo_connection()
+
 
 
 app = FastAPI(
