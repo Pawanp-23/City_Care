@@ -26,7 +26,7 @@ services:
       - key: GEMINI_MODEL
         value: gemini-2.5-flash
       - key: CORS_ORIGINS
-        value: https://citycare-frontend.onrender.com,http://localhost:5173
+        value: https://citycare-frontend-wlw8.onrender.com,http://localhost:5173
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY
@@ -36,7 +36,7 @@ services:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_PUBLIC_BASE_URL
-        value: https://citycare-api.onrender.com
+        value: https://citycare-api-u6du.onrender.com
 
   # Frontend: Vite/React static site
   - type: web
@@ -51,7 +51,7 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        value: https://citycare-api.onrender.com
+        value: https://citycare-api-u6du.onrender.com
       - key: VITE_TELEGRAM_BOT_USERNAME
         value: CityCareMediHubBot
       - key: NODE_VERSION
