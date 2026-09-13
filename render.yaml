@@ -8,6 +8,8 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn core.apis.api:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
       - key: MONGODB_URL
         sync: false
       - key: DATABASE_NAME
