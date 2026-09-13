@@ -11,6 +11,7 @@ import LoginPage from './pages/LoginPage'
 import NotFoundPage from './pages/NotFoundPage'
 import SignupPage from './pages/SignupPage'
 import ManagementPage from './pages/ManagementPage'
+import VoiceAgentPage from './pages/VoiceAgentPage'
 
 function HomeRedirect() {
   const { user } = useAuth()
@@ -34,10 +35,11 @@ function AppFrame() {
     <Route path="/signup" element={<SignupPage />} />
     <Route element={<ProtectedRoute allowRole="PATIENT" />}><Route path="/dashboard" element={<DashboardPage />} /><Route path="/book" element={<BookingPage />} /></Route>
     <Route element={<ProtectedRoute allowRole="DOCTOR" />}><Route path="/doctor" element={<DoctorPage />} /></Route>
+    <Route element={<ProtectedRoute allowRoles={['PATIENT', 'DOCTOR']} />}><Route path="/voice" element={<VoiceAgentPage />} /></Route>
     <Route element={<ProtectedRoute allowRoles={['HOSPITAL_MANAGER', 'SUPERADMIN']} />}><Route path="/manager" element={<ManagementPage />} /></Route>
     <Route element={<ProtectedRoute allowRole="SUPERADMIN" />}><Route path="/admin" element={<ManagementPage superadmin />} /></Route>
     <Route path="*" element={<NotFoundPage />} />
-  </Routes>{authenticatedApp && ['DOCTOR', 'PATIENT'].includes(user.role) && <AssistantPanel />}</div></>
+  </Routes>{authenticatedApp && location.pathname !== '/voice' && ['DOCTOR', 'PATIENT'].includes(user.role) && <AssistantPanel />}</div></>
 }
 
 export default AppFrame

@@ -44,7 +44,12 @@ class PrescriptionController:
         await engine.save(prescription)
         content = f"Prescription\nDiagnosis: {payload.diagnosis}\nMedicines: {'; '.join(payload.medicines)}\nInstructions: {payload.instructions}"
         await index_prescription(engine, prescription.id, prescription.patient_id, "prescription", content)
-        return serialize(prescription)
+        result = serialize(prescription)
+        # Local import avoids coupling the core prescription module to the
+        # optional messaging adapter during application import.
+        from core.services.telegram_gateway import notify_prescription_issued
+        await notify_prescription_issued(prescription.patient_id, result)
+        return result
 
     async def attach(self, prescription_id: str, doctor_id: str, filename: str, content: bytes) -> dict:
         if not ObjectId.is_valid(prescription_id): raise HTTPException(status_code=404, detail="Prescription not found")
@@ -81,7 +86,13 @@ class PrescriptionController:
         appointment = await self.appointments.get_by_id(appointment_id) if ObjectId.is_valid(appointment_id) else None
         if not appointment or str(appointment.doctor_id) != doctor_id: raise HTTPException(status_code=404, detail="Appointment not found")
         if appointment.status == AppointmentStatus.CANCELLED: raise HTTPException(status_code=409, detail="Cancelled appointments cannot be accepted")
+        if appointment.status == AppointmentStatus.ACCEPTED:
+            return {"id": str(appointment.id), "status": appointment.status.value}
         appointment.status = AppointmentStatus.ACCEPTED
         appointment.updated_at = datetime.now(UTC)
         await self.appointments.save(appointment)
+        from core.services.telegram_gateway import notify_appointment_accepted
+        await notify_appointment_accepted(
+            appointment.patient_id, appointment.appointment_date, appointment.slot
+        )
         return {"id": str(appointment.id), "status": appointment.status.value}

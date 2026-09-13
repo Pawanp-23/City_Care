@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 
@@ -31,7 +32,24 @@ function getBestVoice() {
 // Warm up voice list immediately
 if (typeof window !== 'undefined' && window.speechSynthesis) {
   window.speechSynthesis.getVoices()
-  window.speechSynthesis.onvoiceschanged = () => { _cachedVoice = null; getBestVoice() }
+  window.speechSynthesis.addEventListener('voiceschanged', () => {
+    _cachedVoice = null
+    getBestVoice()
+  })
+}
+
+const MIC_ERROR_MESSAGES = {
+  'not-allowed': 'Microphone access is blocked. Open the site controls beside the address bar, set Microphone to Allow, then reload this page.',
+  'service-not-allowed': 'Speech recognition is blocked by this browser. Allow microphone access for this site, then reload the page.',
+  'audio-capture': 'No working microphone was found. Connect or enable a microphone, then try again.',
+  network: 'The browser speech service could not connect. Check your internet connection, or type your message instead.',
+  'language-not-supported': 'This browser cannot recognise English (India). Update Chrome or use the text box.',
+  'no-speech': 'I didn\'t hear anything. Tap the microphone and speak after “Listening” appears.',
+  aborted: '',
+}
+
+function microphoneErrorMessage(code) {
+  return MIC_ERROR_MESSAGES[code] || `Voice input stopped (${code || 'unknown error'}). Check the microphone and try again.`
 }
 
 function speakText(text, { onStart, onEnd } = {}) {
@@ -63,6 +81,8 @@ export default function AssistantPanel() {
   const [voiceMode, setVoiceMode] = useState(false)  // true when last interaction was voice
   const messagesEndRef = useRef(null)
   const recognitionRef = useRef(null)
+  const recognitionActiveRef = useRef(false)
+  const finalTranscriptSentRef = useRef(false)
   const isPatient = user?.role === 'PATIENT'
 
   // Voice uses a dedicated low-latency endpoint; text uses the full tool-calling one
@@ -76,6 +96,14 @@ export default function AssistantPanel() {
   const stopSpeaking = useCallback(() => {
     window.speechSynthesis?.cancel()
     setSpeaking(false)
+  }, [])
+
+  const appendVoiceError = useCallback((text) => {
+    if (!text) return
+    setMessages(prev => {
+      if (prev.at(-1)?.voiceError === text) return prev
+      return [...prev, { role: 'model', text, error: true, voiceError: text }]
+    })
   }, [])
 
     // Core send — isVoice flag routes to the faster voice endpoint
@@ -115,12 +143,29 @@ export default function AssistantPanel() {
   }, [input, loading, messages, textEndpoint, voiceEndpoint])
 
 
-  const startListening = useCallback(() => {
+  const startListening = useCallback(async () => {
+    if (recognitionActiveRef.current) return
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!Recognition) {
-      setMessages(prev => [...prev, { role: 'model', text: 'Voice needs Chrome. Try typing instead!', error: true }])
+      appendVoiceError('Live voice input is not supported in this browser. Open CityCare in the latest Chrome or Edge, or type your message instead.')
       return
     }
+    if (!window.isSecureContext) {
+      appendVoiceError('Microphone access requires a secure page. Open CityCare on localhost or HTTPS, then try again.')
+      return
+    }
+
+    try {
+      const permission = await navigator.permissions?.query({ name: 'microphone' })
+      if (permission?.state === 'denied') {
+        appendVoiceError(MIC_ERROR_MESSAGES['not-allowed'])
+        return
+      }
+    } catch {
+      // Some browsers do not expose microphone state; SpeechRecognition will
+      // request permission itself and report an actionable error below.
+    }
+
     stopSpeaking()  // stop any TTS before listening
 
     const rec = new Recognition()
@@ -129,31 +174,75 @@ export default function AssistantPanel() {
     rec.interimResults = true
     rec.maxAlternatives = 1
 
-    rec.onstart = () => { setListening(true); setTranscript('') }
-    rec.onend = () => setListening(false)
+    finalTranscriptSentRef.current = false
+    rec.onstart = () => {
+      recognitionActiveRef.current = true
+      setListening(true)
+      setTranscript('')
+    }
+    rec.onend = () => {
+      recognitionActiveRef.current = false
+      if (recognitionRef.current === rec) recognitionRef.current = null
+      setListening(false)
+    }
     rec.onerror = (e) => {
+      recognitionActiveRef.current = false
       setListening(false)
       setTranscript('')
-      if (e.error !== 'aborted' && e.error !== 'no-speech') {
-        setMessages(prev => [...prev, { role: 'model', text: `Mic issue: ${e.error}. Check browser permissions.`, error: true }])
-      }
+      appendVoiceError(microphoneErrorMessage(e.error))
     }
     rec.onresult = (e) => {
-      const latest = e.results[e.results.length - 1]
-      const text = latest[0].transcript
-      setTranscript(text)
-      if (latest.isFinal) {
+      let interimText = ''
+      let finalText = ''
+      for (let index = e.resultIndex; index < e.results.length; index += 1) {
+        const result = e.results[index]
+        if (result.isFinal) finalText += result[0].transcript
+        else interimText += result[0].transcript
+      }
+      setTranscript(finalText || interimText)
+      if (finalText.trim() && !finalTranscriptSentRef.current) {
+        finalTranscriptSentRef.current = true
         setTranscript('')
-        send(text, { isVoice: true })
+        void send(finalText, { isVoice: true })
       }
     }
     recognitionRef.current = rec
-    rec.start()
-  }, [send, stopSpeaking])
+    try {
+      rec.start()
+    } catch {
+      recognitionRef.current = null
+      recognitionActiveRef.current = false
+      setListening(false)
+      appendVoiceError('The microphone is already busy. Stop any other recording app, then try again.')
+    }
+  }, [appendVoiceError, send, stopSpeaking])
 
   const stopListening = useCallback(() => {
-    recognitionRef.current?.stop()
+    try {
+      recognitionRef.current?.stop()
+    } catch {
+      recognitionRef.current = null
+      recognitionActiveRef.current = false
+    }
     setListening(false)
+  }, [])
+
+  const closePanel = useCallback(() => {
+    stopListening()
+    stopSpeaking()
+    setOpen(false)
+  }, [stopListening, stopSpeaking])
+
+  useEffect(() => () => {
+    const recognition = recognitionRef.current
+    if (recognition) {
+      recognition.onstart = null
+      recognition.onend = null
+      recognition.onerror = null
+      recognition.onresult = null
+      try { recognition.abort() } catch { /* already stopped */ }
+    }
+    window.speechSynthesis?.cancel()
   }, [])
 
   const clearChat = useCallback(() => {
@@ -193,20 +282,21 @@ export default function AssistantPanel() {
                   Clear
                 </button>
               )}
-              <button type="button" onClick={() => setOpen(false)} aria-label="Close">✕</button>
+              <button type="button" onClick={closePanel} aria-label="Close">✕</button>
             </div>
           </header>
 
           <p className="assistant-note">
             {isPatient ? 'Ask about your prescriptions, clinic, or health info.' : 'Ask about your schedule, patients, or clinic.'}{' '}
-            <strong>Tap mic to speak</strong> — or just type.
+            <strong>Tap mic for a quick question</strong> — or{' '}
+            <Link className="assistant-live-link" to="/voice" onClick={closePanel}>open realtime voice</Link>.
           </p>
 
           <div className="assistant-messages">
             {messages.length === 0 ? (
               <div className="assistant-welcome">
                 <strong>Hey! Ask me anything 👋</strong>
-                <p>Powered by Gemini. Speak or type — I'll respond naturally.</p>
+                <p>Speak or type — I’ll keep the answer clear and useful.</p>
               </div>
             ) : (
               messages.map((m, i) => (
@@ -250,7 +340,7 @@ export default function AssistantPanel() {
 
           <form onSubmit={(e) => { e.preventDefault(); send(undefined, { isVoice: false }) }}>
             <label className="sr-only" htmlFor="compass-input">Message CityCare Compass</label>
-            <div style={{ position: 'relative' }}>
+            <div className="assistant-input-wrap">
               <textarea
                 id="compass-input"
                 value={input}
@@ -260,7 +350,6 @@ export default function AssistantPanel() {
                 placeholder={placeholder}
                 rows={2}
                 disabled={listening}
-                style={{ paddingRight: '52px' }}
               />
               <button
                 type="button"
@@ -273,8 +362,8 @@ export default function AssistantPanel() {
                 <MicIcon active={listening} />
               </button>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-muted, #888)', flex: 1 }}>
+            <div className="assistant-composer-footer">
+              <span>
                 {listening ? '🔴 Listening — speak naturally, I\'ll send when you pause' : 'Enter to send · Mic to speak'}
               </span>
               <button type="submit" disabled={loading || (!input.trim() && !listening)}>

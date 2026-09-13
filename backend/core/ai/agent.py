@@ -248,14 +248,18 @@ class CityCareAgent:
         payload: dict[str, Any] = {
             "systemInstruction": {"parts": [{"text": _patient_system_instruction(principal, context, sources)}]},
             "contents": contents,
-            "generationConfig": {"temperature": 0.3, "maxOutputTokens": 450},
+            # Patient Telegram responses are intentionally compact. A smaller
+            # output budget lowers generation latency and avoids walls of text.
+            "generationConfig": {"temperature": 0.3, "maxOutputTokens": 220},
         }
         endpoint = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"{settings.gemini_model}:generateContent?{urlencode({'key': settings.gemini_api_key})}"
         )
         try:
-            response_status, body = await _post_with_retry(endpoint, payload, 30.0)
+            # Telegram must fail fast. Retrying a rate-limited request after a
+            # fixed sleep makes the chat feel frozen and does not restore quota.
+            response_status, body = await post_json(endpoint, payload, 8.0)
         except TransportError as exc:
             raise AssistantUpstreamError("The assistant service could not be reached. Please try again.") from exc
 
@@ -311,7 +315,7 @@ class CityCareAgent:
         )
         try:
             # Voice: NO retries — fail fast to local fallback. Speed > resilience here.
-            status, body = await post_json(endpoint, payload, 12.0)
+            status, body = await post_json(endpoint, payload, 6.0)
         except TransportError as exc:
             raise AssistantUpstreamError("Couldn't reach the assistant. Try again!") from exc
 
@@ -338,7 +342,11 @@ class CityCareAgent:
 
     async def local_operational_fallback(
 
-        self, request: AssistantChatRequest, principal: Principal
+        self,
+        request: AssistantChatRequest,
+        principal: Principal,
+        *,
+        allow_generic: bool = True,
     ) -> dict[str, Any] | None:
         """Keep essential doctor workflows available during an AI-provider outage.
 
@@ -353,7 +361,54 @@ class CityCareAgent:
         # ── Instant replies (no tool calls needed) ─────────────────────────
         greetings = ("hi", "hii", "hello", "hey", "good morning", "good evening", "good afternoon", "sup", "howdy", "helo", "hai")
         if message in greetings or any(message.startswith(g + " ") for g in greetings) or message in ("hii!", "hi!", "hello!", "hey!"):
-            return {"response": f"Hey {name}! 👋 I'm CityCare Compass. I'm in offline mode right now but I can still check your schedule and clinic stats. What do you need?", "mode": "instant"}
+            return {"response": f"Hey {name}! 👋 I can check your schedule, patient load, or clinic stats. What do you need?", "mode": "instant"}
+
+        identity_questions = (
+            "what is my name",
+            "what's my name",
+            "whats my name",
+            "who am i",
+            "do you know my name",
+        )
+        if message.rstrip(" ?!.") in identity_questions:
+            role = principal.role.value.lower().replace("_", " ")
+            return {
+                "response": f"You're signed in as {name}, with the {role} role.",
+                "mode": "instant",
+            }
+
+        normalized = message.rstrip(" ?!.")
+        about_questions = (
+            "who are you",
+            "what are you",
+            "tell me about yourself",
+            "introduce yourself",
+            "what is citycare compass",
+        )
+        if normalized in about_questions:
+            return {
+                "response": "I'm CityCare Compass, your clinic assistant. I help you review schedules, patient load, upcoming visits, and CityCare statistics through natural conversation.",
+                "mode": "instant",
+            }
+
+        wellbeing_questions = (
+            "how are you",
+            "how are you doing",
+            "how is it going",
+            "how's it going",
+            "hows it going",
+        )
+        if normalized in wellbeing_questions:
+            return {
+                "response": f"I'm ready and working, {name}. What can I help you with today?",
+                "mode": "instant",
+            }
+
+        if any(term in message for term in ("what can you do", "how can you help", "your capabilities", "help me")):
+            return {
+                "response": "I can check your schedule, today's patient load, upcoming visits, and clinic statistics.",
+                "mode": "instant",
+            }
 
         thanks = ("thanks", "thank you", "thank u", "thx", "ty", "great", "ok", "okay", "cool", "got it", "nice")
         if message in thanks or any(message.startswith(t) for t in thanks):
@@ -393,8 +448,51 @@ class CityCareAgent:
                 "mode": "local_operational_fallback",
             }
 
+        if not allow_generic:
+            return None
+
         # Generic fallback for anything else — don't leave user stranded
         return {
-            "response": f"Hey {name}, I'm in offline mode at the moment (Gemini's rate limit). I can still check your schedule or clinic stats — just ask! For anything else, try again in a minute.",
+            "response": f"I can't reach the smart answer service right now, {name}. I can still check your schedule or clinic stats; for anything else, try again shortly.",
             "mode": "local_operational_fallback",
         }
+
+    async def local_patient_voice_fallback(
+        self,
+        request: AssistantChatRequest,
+        principal: Principal,
+        *,
+        has_matching_record: bool = False,
+        sources: list[str] | None = None,
+        allow_generic: bool = True,
+    ) -> dict[str, Any] | None:
+        """Return a short, safe spoken response when Gemini is unavailable.
+
+        This deliberately does not interpret medication or symptom details. A
+        deterministic fallback must never turn an outage into medical advice.
+        """
+        message = request.message.casefold().strip()
+        name = principal.first_name
+
+        greetings = ("hi", "hii", "hello", "hey", "good morning", "good afternoon", "good evening")
+        if message in greetings or any(message.startswith(f"{item} ") for item in greetings):
+            response = f"Hi {name}. I can still help you find your CityCare records while the smart assistant reconnects."
+        elif any(term in message for term in ("prescription", "medicine", "medication", "tablet", "dose", "dosage")):
+            if has_matching_record:
+                response = "I found a matching prescription record. Open Prescriptions for the exact directions, and check with your doctor before changing any medicine."
+            else:
+                response = "I couldn't find a matching prescription record. Check the Prescriptions page or contact the clinic."
+        elif any(term in message for term in ("appointment", "booking", "book", "doctor", "schedule")):
+            response = "Open Appointments to choose a doctor and available time. I can't safely create or change a booking from this voice panel."
+        elif allow_generic:
+            response = "The smart assistant is temporarily unavailable, so I can't safely answer that by voice. Please try again shortly or contact the clinic."
+        else:
+            return None
+
+        result: dict[str, Any] = {
+            "response": response,
+            "mode": "local_patient_voice_fallback",
+        }
+        if sources:
+            result["sources"] = sources
+        return result

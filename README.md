@@ -102,8 +102,25 @@ The app starts without AI keys, but the doctor assistant returns a clear configu
 ```dotenv
 GEMINI_API_KEY=your_key
 GEMINI_MODEL=gemini-2.5-flash
+GEMINI_LIVE_MODEL=gemini-3.1-flash-live-preview
 TAVILY_API_KEY=your_tavily_key
 ```
+
+### Realtime hospital voice agent
+
+Signed-in patients and doctors can open `/voice` from the Compass panel. This
+mode uses Gemini Live for full-duplex speech, interruption handling, live
+transcripts, and role-scoped CityCare tools. Patients can find doctors, inspect
+facilities, review their own appointments and prescriptions, find free slots,
+and book only after an explicit spoken confirmation. Doctors can review their
+own schedule and clinic workload. Clinical mutations such as accepting an
+appointment or issuing a prescription remain outside voice control.
+
+The API exchanges the server-only Gemini key for a single-use, short-lived
+session token; the browser never receives `GEMINI_API_KEY`. Microphone access
+must be allowed for the CityCare origin, and the Gemini project must have Live
+API access and quota. The normal text assistant remains available when realtime
+voice is unavailable.
 
 The assistant does not share conversations between users. The browser sends at most 12 prior messages for the current request; the backend does not retain chat history. All tool calls are server-side and role-checked. Tavily receives only generic, non-identifying public-health queries; obvious names, phone numbers, and email addresses are rejected before any web request.
 
@@ -130,6 +147,7 @@ research require a working Gemini connection (and Tavily for web research).
 | GET | `/api/v1/prescriptions/mine` | Owning patient only |
 | GET | `/api/v1/prescriptions/{id}/download` | Owning patient only |
 | POST | `/api/v1/assistant/patient-chat` | Signed-in patient only |
+| GET | `/api/v1/assistant/live-session` | Signed-in patient or doctor |
 
 ## Prescription, documents, RAG, and voice input
 
@@ -150,14 +168,12 @@ a clinic-wide vector store first and filter in the browser: that is a patient
 data leak. The CityCare endpoint already enforces the ownership boundary before
 retrieval.
 
-The Compass panel now supports browser voice input (Chrome Web Speech API) and
-speaks returned answers. That is not the same thing as a realtime Pipecat
-service. The `cliniccare_rag` reference repository was cloned into
-`references/cliniccare_rag` and reviewed. The requested `clinic-voice-ai`
-repository could not be cloned because this environment could not resolve
-GitHub after retries. Its Pipecat/Deepgram WebRTC service also requires a
-Deepgram key; do not claim it is running until those credentials and the
-separate service are available.
+The Compass panel supports fast browser speech recognition for one-off
+questions. The dedicated `/voice` page is the realtime agent: it streams audio
+directly over Gemini Live, supports interruption, and executes only the
+role-scoped hospital tools described above. The older optional Pipecat service
+under `backend/voice` is kept for experiments but requires a separate Deepgram
+account and is not needed for the main CityCare voice workflow.
 
 To issue a real prescription, set these server-only values in `backend/.env`:
 
@@ -175,6 +191,17 @@ shared after it is opened, so it is not sufficient PHI protection by itself.
 ## Production reality
 
 This is a strong local project build, not a production healthcare system. Before deploying, add HTTPS, rate limiting, audit trails, verified staff onboarding, password reset, encrypted backups, consent/retention rules, data access reviews, and a proper EMR/pharmacy/billing compliance design. Do not claim those domains are solved because a dashboard has an icon for them.
+
+## Telegram patient assistant
+
+The backend now includes a DM-only Telegram gateway for natural-language doctor
+search, registration, booking, confirmation status, facilities, patient chat,
+and authorized prescription PDF delivery. It uses short-lived pairing codes for
+existing patients and sends notifications when the doctor accepts an
+appointment or issues a prescription. The existing web app is unchanged.
+
+Deployment, security, BotFather, webhook, and Hermes-inspired session details
+are documented in [`backend/TELEGRAM_GATEWAY.md`](backend/TELEGRAM_GATEWAY.md).
 # Prescription, RAG, and Voice Assistant
 
 ## Run locally

@@ -1,4 +1,12 @@
-# CityCare Pipecat voice service
+# Legacy optional Pipecat voice service
+
+The supported CityCare voice workflow is now the authenticated `/voice` page
+in the main application. It uses Gemini Live with short-lived browser tokens and
+does not require Deepgram. Configure `GEMINI_API_KEY` and optionally
+`GEMINI_LIVE_MODEL` in `backend/.env`, run the normal API and frontend, then
+open `/voice` as a patient or doctor.
+
+The service below remains only as an optional experiment.
 
 This is a separate realtime service so a missing audio provider never brings
 down the appointment API. It uses SmallWebRTC, Deepgram STT/TTS, Gemini, and

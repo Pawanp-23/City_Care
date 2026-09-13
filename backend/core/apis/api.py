@@ -21,12 +21,14 @@ from core.apis.routes import (
     management_router,
     prescription_router,
     rag_router,
+    telegram_router,
 )
 from core.config import settings
 from core.database.database import close_mongo_connection, engine
 from core.models.appointment_model import Appointment, AppointmentStatus
 from core.models.prescription_model import ClinicKnowledgeChunk, Prescription, PrescriptionChunk
 from core.models.user_model import User
+from core.models.telegram_model import TelegramLinkCode, TelegramPatientLink, TelegramSession, TelegramUpdateReceipt
 
 configure_logging()
 logger = get_logger(__name__)
@@ -34,7 +36,17 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    await engine.configure_database([User, Appointment, Prescription, PrescriptionChunk, ClinicKnowledgeChunk])
+    await engine.configure_database([
+        User,
+        Appointment,
+        Prescription,
+        PrescriptionChunk,
+        ClinicKnowledgeChunk,
+        TelegramPatientLink,
+        TelegramSession,
+        TelegramLinkCode,
+        TelegramUpdateReceipt,
+    ])
     appointments = engine.get_collection(Appointment)
     # Replace prior index definitions. The active-state set changed when the
     # acceptance workflow was introduced, and MongoDB cannot alter a partial
@@ -57,6 +69,30 @@ async def lifespan(_: FastAPI):
     )
     await engine.get_collection(Prescription).create_index(
         [("appointment_id", ASCENDING)], name="one_prescription_per_appointment", unique=True
+    )
+    await engine.get_collection(TelegramPatientLink).create_index(
+        [("telegram_user_id", ASCENDING)], name="one_patient_per_telegram_user", unique=True
+    )
+    await engine.get_collection(TelegramPatientLink).create_index(
+        [("patient_id", ASCENDING)], name="one_telegram_user_per_patient", unique=True
+    )
+    await engine.get_collection(TelegramSession).create_index(
+        [("session_key", ASCENDING)], name="one_telegram_session_key", unique=True
+    )
+    await engine.get_collection(TelegramSession).create_index(
+        [("expires_at", ASCENDING)], name="expire_telegram_sessions", expireAfterSeconds=0
+    )
+    await engine.get_collection(TelegramLinkCode).create_index(
+        [("code_hash", ASCENDING)], name="one_telegram_link_code", unique=True
+    )
+    await engine.get_collection(TelegramLinkCode).create_index(
+        [("expires_at", ASCENDING)], name="expire_telegram_link_codes", expireAfterSeconds=0
+    )
+    await engine.get_collection(TelegramUpdateReceipt).create_index(
+        [("update_id", ASCENDING)], name="one_telegram_update", unique=True
+    )
+    await engine.get_collection(TelegramUpdateReceipt).create_index(
+        [("processed_at", ASCENDING)], name="expire_telegram_update_receipts", expireAfterSeconds=604800
     )
     logger.info("MongoDB indexes verified")
     yield
@@ -112,3 +148,4 @@ app.include_router(management_router.router)
 app.include_router(assistant_router.router)
 app.include_router(prescription_router.router)
 app.include_router(rag_router.router)
+app.include_router(telegram_router.router)
