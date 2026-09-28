@@ -1,5 +1,12 @@
 # CityCare Clinic
 
+<p>
+  <a href="https://citycare-frontend-wlw8.onrender.com"><img alt="Live demo" src="https://img.shields.io/badge/Live_demo-e5192c?style=flat-square&logo=render&logoColor=white"></a>
+  <a href="https://portfolio-pawanpatil.vercel.app"><img alt="Portfolio" src="https://img.shields.io/badge/Portfolio-Pawan_Patil-111111?style=flat-square"></a>
+</p>
+
+**Live:** [citycare-frontend-wlw8.onrender.com](https://citycare-frontend-wlw8.onrender.com) — hosted on Render’s free tier, the first load can take ~30 s · **Built by** [Pawan Patil](https://portfolio-pawanpatil.vercel.app)
+
 CityCare is a single-hospital appointment system for Nagpur with separate patient, doctor, hospital-manager, and superadmin workspaces. It uses React/Vite on the frontend and a layered FastAPI + Motor/ODMantic backend.
 
 ## What changed in this version
